@@ -245,43 +245,52 @@ Hand get_best_hand(array<Card,7> cards){
     return result;
 }
 
-vector<map<string,int>> calculate_hand_frequency(vector<vector<Card>> cards) {
+vector<map<string, int>> calculate_hand_frequency(vector<vector<Card>> cards, vector<vector<Card>> cards_to_remove) {
     int num_given_cards = cards[0].size();
-    vector<array<Card,7>> players_cards;
+    vector<array<Card, 7>> players_cards;
 
     // Sort the cards and place them in arrays of 7 cards
     for (int i = 0; i < cards.size(); i++) {
-        array<Card,7> temp;
+        array<Card, 7> temp;
         sort(cards[i].begin(), cards[i].end(), [](Card &a, Card &b) { return a.value > b.value; });
         copy(cards[i].begin(), cards[i].end(), temp.begin());
         players_cards.push_back(temp);
     }
 
-    // Create the new hand array for passing it to the get_best_hand Function
-    array<Card,7> new_hand;
+    // Create the new hand array for passing it to the get_best_hand function
+    array<Card, 7> new_hand;
     string possible_hand_types[10] = {"Royal Flush", "Straight Flush", "Poker", "Full House", "Flush", "Straight", "Triples", "Double Pairs", "Pairs", "High Card"};
 
     // Create the map with the hand_types and the number of hands of that type
-    vector<map<string,int>> players_hand_posibilities;
-    map<string,int> hand_posibilities;
+    vector<map<string, int>> players_hand_posibilities;
+    map<string, int> hand_posibilities;
     for (int i = 0; i < 10; i++) {
         hand_posibilities[possible_hand_types[i]] = 0;
     }
     hand_posibilities["Win"] = 0;
     hand_posibilities["Draw"] = 0;
 
+    // Add tie cases tracking
+    map<string, int> tie_cases;
+
     for (int l = 0; l < players_cards.size(); l++) {
         players_hand_posibilities.push_back(hand_posibilities);
     }
 
     Hand result;
-
-    // Create all possible cards
     vector<Card> possible_cards;
+
+    // Create all possible cards, excluding those already in hand and those in the cards_to_remove vector
     for (int j = 13; j > 0; j--) {
         for (int i = 4; i > 0; i--) {
             Card new_card;
+            new_card.value = j;
+            new_card.suit = (Suit)i;
+
             bool already_in_hand = false;
+            bool to_be_removed = false;
+
+            // Check if the card is already in a player's hand
             for (int l = 0; l < players_cards.size(); l++) {
                 for (int k = 0; k < num_given_cards; k++) {
                     if (players_cards[l][k].value == j && players_cards[l][k].suit == i) {
@@ -289,22 +298,34 @@ vector<map<string,int>> calculate_hand_frequency(vector<vector<Card>> cards) {
                         break;
                     }
                 }
+                if (already_in_hand) break;
             }
-            if (!already_in_hand) {
-                new_card.value = j;
-                new_card.suit = (Suit)i;
+
+            // Check if the card is in the cards_to_remove vector
+            for (const auto &remove_set : cards_to_remove) {
+                for (const auto &card_to_remove : remove_set) {
+                    if (new_card.value == card_to_remove.value && new_card.suit == card_to_remove.suit) {
+                        to_be_removed = true;
+                        break;
+                    }
+                }
+                if (to_be_removed) break;
+            }
+
+            // Only add the card if it is neither in hand nor in the removal list
+            if (!already_in_hand && !to_be_removed) {
                 possible_cards.push_back(new_card);
             }
         }
     }
 
-    array<int,5> indexes = {0, 1, 2, 3, 4};
+    array<int, 5> indexes = {0, 1, 2, 3, 4};
     int n = (7 - num_given_cards);
     int N = possible_cards.size();
     int num_possible_cases = 1;
     int intersected_cards = 0;
     int player_hand_heuristic = 0;
-    array<int,10> drawed_players_indx = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    array<int, 10> drawed_players_indx = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
     while (true) {
         int max_hand_heuristic = 0;
@@ -440,6 +461,7 @@ void nice_print_frequencies(vector<map<string,int>> frecs){
 
 PYBIND11_MODULE(PokerPy, m) {
     m.doc() = "pybind11 plugin for calculating poker probabilities."; // optional module docstring
+    
     py::class_<Card>(m, "Card")
         .def(py::init<short, short>())
         .def(py::init<string>())
@@ -448,16 +470,24 @@ PYBIND11_MODULE(PokerPy, m) {
         .def("__repr__", &Card::to_string)
         .def("__eq__", &Card::operator==)
         .def("__ge__", &Card::operator>=);
+
     py::class_<Hand>(m, "Hand")
-        .def(py::init<short, array<Card,5>>())
-        .def(py::init<string, array<Card,5>>())
+        .def(py::init<short, array<Card, 5>>())
+        .def(py::init<string, array<Card, 5>>())
         .def_property("hand_type", [](Hand& a){return hand_names[a.hand_type - 1];}, [](Hand& a, string ht){return a.hand_type = hand_values[ht];})
         .def_readwrite("Cards", &Hand::Cards)
         .def("hand_heuristic", &Hand::hand_heuristic)
         .def("__repr__", &Hand::to_string)
         .def("__eq__", &Hand::operator==)
         .def("__ge__", &Hand::operator>=);
+
     m.def("get_best_hand", &get_best_hand_not_sorted, "A function that gets the best hands given 7 cards");
-    m.def("calculate_hand_frequency", &calculate_hand_frequency, "A function that gets the frequencies of the possible hands given any number of cards");
+
+    // Updated function registration for calculate_hand_frequency
+    m.def("calculate_hand_frequency", 
+          &calculate_hand_frequency, 
+          "A function that gets the frequencies of the possible hands given any number of cards and cards to remove",
+          py::arg("cards"), py::arg("cards_to_remove"));
+
     m.def("nice_print_frequencies", &nice_print_frequencies, "A function that gets the frequencies of the possible hands and prints them in nice format");
 }
